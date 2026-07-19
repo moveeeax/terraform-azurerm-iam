@@ -9,7 +9,7 @@ the same location.
 
 ```hcl
 module "iam" {
-  source = "github.com/cybercapybara/terraform-azurerm-iam"
+  source = "github.com/moveeeax/terraform-azurerm-iam"
 
   scope = "/subscriptions/xxxx/resourceGroups/prod-rg"
 
