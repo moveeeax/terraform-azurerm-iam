@@ -4,7 +4,7 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = ">= 3.0"
+      version = ">= 3.87, < 5.0"
     }
   }
 }
@@ -14,7 +14,7 @@ provider "azurerm" {
 }
 
 variable "scope" {
-  description = "Scope (e.g. resource group ID) to assign roles at."
+  description = "Scope to assign roles at, as a full resource ID (e.g. /subscriptions/<id>/resourceGroups/prod-rg). Prefer the narrowest scope that works."
   type        = string
 }
 
@@ -32,6 +32,10 @@ module "iam" {
     "reader" = {
       principal_id         = var.principal_id
       role_definition_name = "Reader"
+
+      # Naming the principal type avoids the intermittent PrincipalNotFound
+      # error when the service principal was created in the same apply.
+      principal_type = "ServicePrincipal"
     }
   }
 
@@ -40,8 +44,17 @@ module "iam" {
     description = "Can list storage accounts."
     actions     = ["Microsoft.Storage/storageAccounts/read"]
   }
+
+  # Left at its default of false. Assigning Owner/Contributor, defining a
+  # wildcard custom role, or working at the tenant root scope all require
+  # setting this to true explicitly.
+  allow_privileged_roles = false
 }
 
 output "role_assignment_ids" {
   value = module.iam.role_assignment_ids
+}
+
+output "custom_role_definition_id" {
+  value = module.iam.custom_role_definition_id
 }
