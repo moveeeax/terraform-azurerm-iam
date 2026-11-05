@@ -9,7 +9,7 @@ the same location.
 
 ```hcl
 module "iam" {
-  source = "github.com/moveeeax/terraform-azurerm-iam"
+  source = "github.com/moveeeax/terraform-azurerm-iam?ref=v1.0.0"
 
   scope = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/prod-rg"
 
@@ -60,12 +60,13 @@ is available as an explicit escape hatch for the same problem.
 | Name      | Version           |
 |-----------|-------------------|
 | terraform | >= 1.5            |
-| azurerm   | >= 3.87, < 5.0    |
+| azurerm   | >= 3.87, < 6.0    |
 
 `principal_type` on `azurerm_role_assignment` only became a settable argument
 in azurerm **3.87.0**; on 3.86.0 and earlier it is read-only and the
 configuration is rejected outright. Running the test suite additionally needs
-Terraform >= 1.7 for `mock_provider`.
+Terraform >= 1.7 for `mock_provider`. CI runs against the latest azurerm 5.x
+release; 6.x is excluded until it has been tested.
 
 ## Inputs
 

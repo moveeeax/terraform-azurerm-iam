@@ -8,7 +8,8 @@ terraform {
       # azurerm_role_assignment is a settable argument. Up to and including
       # 3.86.0 it is read-only and Terraform rejects the configuration with
       # "Value for unconfigurable attribute". Verified by pinning each build.
-      version = ">= 3.87, < 5.0"
+      # Ceiling: validated and tested on 5.x; 6.0 has not been vetted.
+      version = ">= 3.87, < 6.0"
     }
   }
 }
