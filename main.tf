@@ -27,6 +27,40 @@ locals {
     ])
   ])
 
+  # The privileged roles whose extra power is writing role assignments. An ABAC
+  # condition on Microsoft.Authorization/roleAssignments actions can narrow
+  # these to "may only hand out roles X and Y", which is how Microsoft
+  # recommends delegating them. Contributor is left out on purpose: it cannot
+  # write role assignments, so no delegation condition makes it any narrower.
+  delegation_role_names = [
+    "owner",
+    "user access administrator",
+    "role based access control administrator",
+  ]
+
+  delegation_role_guids = [
+    "8e3af657-a8ff-443c-a75c-2fe8c4bcb635", # Owner
+    "18d7d88d-d35e-4fb5-a5c3-7773c20a72d9", # User Access Administrator
+    "f58310d9-a9f6-439a-9e8d-f62e7b41a168", # Role Based Access Control Administrator
+  ]
+
+  delegation_assignment_keys = sort([
+    for k, v in var.role_assignments : k
+    if contains(local.delegation_role_names, lower(v.role_definition_name == null ? "" : v.role_definition_name))
+    || anytrue([
+      for guid in local.delegation_role_guids :
+      strcontains(lower(v.role_definition_id == null ? "" : v.role_definition_id), guid)
+    ])
+  ])
+
+  # Delegation-role assignments whose condition mentions roleAssignments
+  # actions. This is a substring check, not a parser: it proves the condition
+  # is aimed at role assignment writes, not that it is tight.
+  conditioned_delegation_keys = sort([
+    for k in local.delegation_assignment_keys : k
+    if strcontains(lower(var.role_assignments[k].condition == null ? "" : var.role_assignments[k].condition), "microsoft.authorization/roleassignments")
+  ])
+
   # Actions that grant everything, or that let the holder grant themselves
   # everything. Matched case-insensitively against the requested actions.
   privileged_action_patterns = [
@@ -98,6 +132,11 @@ resource "azurerm_role_assignment" "this" {
   role_definition_id   = each.value.role_definition_id
   description          = each.value.description
 
+  # condition_version only means something next to a condition, so it stays
+  # null on unconditioned assignments and defaults to "2.0" otherwise.
+  condition         = each.value.condition
+  condition_version = each.value.condition == null ? null : coalesce(each.value.condition_version, "2.0")
+
   # A caller that creates the custom role here and then assigns it by name has
   # no expressible dependency between the two, so Terraform is free to attempt
   # the assignment before the definition exists.
@@ -105,8 +144,21 @@ resource "azurerm_role_assignment" "this" {
 
   lifecycle {
     precondition {
-      condition     = var.allow_privileged_roles || !contains(local.privileged_assignment_keys, each.key)
-      error_message = "Role assignment \"${each.key}\" grants a privileged role (Owner, Contributor, User Access Administrator or Role Based Access Control Administrator) at ${var.scope}. Assign a narrower built-in role, or set allow_privileged_roles = true to opt in."
+      condition = (
+        var.allow_privileged_roles
+        || !contains(local.privileged_assignment_keys, each.key)
+        || (var.privileged_requires_condition && contains(local.conditioned_delegation_keys, each.key))
+      )
+      error_message = "Role assignment \"${each.key}\" grants a privileged role (Owner, Contributor, User Access Administrator or Role Based Access Control Administrator) at ${var.scope}. Assign a narrower built-in role, set allow_privileged_roles = true to opt in, or (for Owner, User Access Administrator and Role Based Access Control Administrator) set privileged_requires_condition = true and add a condition that constrains Microsoft.Authorization/roleAssignments actions."
+    }
+
+    precondition {
+      condition = (
+        !var.privileged_requires_condition
+        || !contains(local.delegation_assignment_keys, each.key)
+        || contains(local.conditioned_delegation_keys, each.key)
+      )
+      error_message = "Role assignment \"${each.key}\" grants Owner, User Access Administrator or Role Based Access Control Administrator without a condition on Microsoft.Authorization/roleAssignments actions. privileged_requires_condition = true requires one, even when allow_privileged_roles = true."
     }
 
     precondition {
