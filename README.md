@@ -47,6 +47,49 @@ than where it was created.
 Prefer the narrowest scope that works: a resource group ID rather than a
 subscription ID, a resource ID rather than a resource group.
 
+### Conditions (ABAC)
+
+Each assignment accepts an Azure ABAC `condition`. `condition_version`
+defaults to `"2.0"` when a condition is set and stays null otherwise, so
+existing assignments plan unchanged.
+
+```hcl
+role_assignments = {
+  "logs-reader" = {
+    principal_id         = "11111111-1111-1111-1111-111111111111"
+    role_definition_name = "Storage Blob Data Reader"
+    condition            = "((!(ActionMatches{'Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read'})) OR (@Resource[Microsoft.Storage/storageAccounts/blobServices/containers:name] StringEquals 'logs'))"
+  }
+}
+```
+
+To delegate role assignment management, which is what Microsoft recommends
+instead of a plain User Access Administrator grant, set
+`privileged_requires_condition = true` (recommended whenever you delegate).
+Then an assignment of Owner, User Access Administrator or Role Based Access
+Control Administrator passes the gate without `allow_privileged_roles` if its
+condition constrains `Microsoft.Authorization/roleAssignments` actions, and the
+same roles without such a condition are rejected even with
+`allow_privileged_roles = true`.
+
+```hcl
+privileged_requires_condition = true
+
+role_assignments = {
+  "team-lead-can-grant-reader" = {
+    principal_id         = "11111111-1111-1111-1111-111111111111"
+    role_definition_name = "Role Based Access Control Administrator"
+    # May only assign Reader (acdd72a7-...).
+    condition = "((!(ActionMatches{'Microsoft.Authorization/roleAssignments/write'})) OR (@Request[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {acdd72a7-3385-48ef-bd42-f606fba81ae7}))"
+  }
+}
+```
+
+The check is a substring match on the condition text: it confirms the
+condition targets role assignment actions, not that it is narrow. Review the
+expression itself. Contributor, wildcard custom roles and the tenant root scope
+are not affected and still need `allow_privileged_roles`.
+
 ### Service principal replication lag
 
 Set `principal_type` on each assignment when you know it. Azure RBAC creation
@@ -76,6 +119,7 @@ release; 6.x is excluded until it has been tested.
 | `role_assignments`       | Map of role assignments keyed by an arbitrary identifier.                          | `map(object)` | `{}`    |    no    |
 | `custom_role`            | Optional custom role definition to create at the scope.                            | `object`      | `null`  |    no    |
 | `allow_privileged_roles` | Opt in to grants that confer full control of the scope (see above).                | `bool`        | `false` |    no    |
+| `privileged_requires_condition` | Let conditioned Owner, User Access Administrator and RBAC Administrator assignments pass the gate, and reject them unconditioned (see Conditions). | `bool` | `false` | no |
 
 ### `role_assignments` object
 
@@ -87,6 +131,8 @@ release; 6.x is excluded until it has been tested.
 | `role_definition_id`               | `string` | `null`  | Custom or known role definition ID.                                 |
 | `description`                      | `string` | `null`  | Free-text justification stored on the assignment.                   |
 | `skip_service_principal_aad_check` | `bool`   | `null`  | Skip the Entra ID lookup for a just-created service principal.       |
+| `condition`                        | `string` | `null`  | ABAC condition expression. Must be non-empty when set.              |
+| `condition_version`                | `string` | `null`  | Defaults to `"2.0"` when `condition` is set; only valid with it.    |
 
 ### `custom_role` object
 

@@ -22,6 +22,10 @@ variable "role_assignments" {
     the same apply, `principal_type = "ServicePrincipal"` (or
     `skip_service_principal_aad_check = true`) avoids the intermittent
     "PrincipalNotFound" failure caused by Entra ID replication lag.
+
+    `condition` is an Azure ABAC condition expression that narrows what the
+    assignment allows. `condition_version` defaults to "2.0" when a condition
+    is set and must be left null otherwise.
   EOT
 
   type = map(object({
@@ -31,6 +35,8 @@ variable "role_assignments" {
     role_definition_id               = optional(string, null)
     description                      = optional(string, null)
     skip_service_principal_aad_check = optional(bool, null)
+    condition                        = optional(string, null)
+    condition_version                = optional(string, null)
   }))
   default = {}
 
@@ -55,6 +61,20 @@ variable "role_assignments" {
       for k, v in var.role_assignments : trimspace(v.principal_id) != ""
     ])
     error_message = "principal_id must be a non-empty object ID."
+  }
+
+  validation {
+    condition = alltrue([
+      for k, v in var.role_assignments : v.condition == null || trimspace(coalesce(v.condition, " ")) != ""
+    ])
+    error_message = "condition must be a non-empty ABAC expression, or null for an unconditioned assignment."
+  }
+
+  validation {
+    condition = alltrue([
+      for k, v in var.role_assignments : v.condition_version == null || v.condition != null
+    ])
+    error_message = "condition_version is only valid together with condition."
   }
 }
 
@@ -94,6 +114,25 @@ variable "allow_privileged_roles" {
       * any grant at the tenant root scope ("/").
 
     Set to true only when a broad grant is genuinely intended.
+  EOT
+
+  type    = bool
+  default = false
+}
+
+variable "privileged_requires_condition" {
+  description = <<-EOT
+    Opt in to conditioned delegation of the role-assigning roles. When true:
+
+      * an assignment of Owner, User Access Administrator or Role Based Access
+        Control Administrator passes the privileged-role gate without
+        allow_privileged_roles, provided its `condition` constrains
+        Microsoft.Authorization/roleAssignments actions;
+      * the same roles without such a condition are rejected, even when
+        allow_privileged_roles = true.
+
+    Contributor, wildcard custom roles and the tenant root scope are not
+    affected and still need allow_privileged_roles.
   EOT
 
   type    = bool
